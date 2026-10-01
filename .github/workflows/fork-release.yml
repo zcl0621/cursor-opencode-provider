@@ -1,0 +1,73 @@
+# Fork-only release: build a ready-to-load OpenCode 2.0 plugin bundle and attach
+# it to a GitHub Release. No npm publish.
+#
+# OpenCode 2.0 does not install dependencies for local plugins, so the bundle
+# ships the built provider together with its production node_modules, plus a
+# loader package for $OPENCODE_CONFIG_DIR/plugins/. The release tag is
+# fork-<version> (not v*) so the upstream npm publish workflow never fires.
+
+name: Fork release
+
+on:
+  push:
+    branches:
+      - '0.7.7'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # shell-timeout's ZDOTDIR integration test needs /bin/zsh.
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      - name: Build
+        run: bun run build
+
+      - name: Assemble bundle
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p out/cursor/provider
+          cp -R dist package.json README.md LICENSE out/cursor/provider/
+          (cd out/cursor/provider && npm install --omit=dev --omit=peer --legacy-peer-deps --ignore-scripts --no-package-lock --no-audit --no-fund)
+          cat > out/cursor/package.json <<'EOF'
+          { "name": "cursor-fork-loader", "private": true, "type": "module", "main": "./index.js" }
+          EOF
+          cat > out/cursor/index.js <<'EOF'
+          export { default } from "./provider/dist/plugin-opencode2.js"
+          EOF
+          node -e "import('./out/cursor/provider/dist/index.js').then(m => { if (typeof m.createCursor !== 'function') process.exit(1) })"
+          tar -czf "cursor-opencode-provider-$VERSION-opencode2.tar.gz" -C out cursor
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="fork-$VERSION"
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" "cursor-opencode-provider-$VERSION-opencode2.tar.gz" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Fork $VERSION (OpenCode 2.0 bundle)" \
+            --notes "Built from ${GITHUB_SHA}. Extract into \$OPENCODE_CONFIG_DIR/plugins/ and set CURSOR_OPENCODE2_DEV_ENTRY to plugins/cursor/provider/dist/index.js."
