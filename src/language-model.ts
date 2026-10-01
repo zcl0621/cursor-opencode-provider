@@ -3048,6 +3048,14 @@ export async function pump(
         }
       }
       closeOpenSpans()
+      trace(
+        `Run end-stream error frame: sessionId=${session.sessionId} ` +
+          `conversationId=${session.conversationId} openCodeSession=${session.openCodeSessionId ?? "-"} ` +
+          `model=${session.cacheDiagnostics?.modelId ?? "-"} ` +
+          `heldMs=${Date.now() - session.createdAt} sinceInboundMs=${Date.now() - session.lastInboundAt} ` +
+          `pending=${session.pending.size} openRuns=${sessionManager.openSessionCount()} ` +
+          `payload=${payload.slice(0, 4000) || "(empty)"}`,
+      )
       const failure = payload
         ? connectFrameError(payload)
         : new CursorRunInterruptedError()
