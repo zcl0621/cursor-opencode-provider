@@ -432,6 +432,11 @@ export class SessionManager {
   }
 
   /** Live open Run for this OpenCode session id, if any. */
+  /** Diagnostics: Runs currently registered (open or held). */
+  openSessionCount(): number {
+    return this.sessions.size
+  }
+
   findOpenByOpenCodeSessionId(openCodeSessionId: string | undefined): CursorSession | undefined {
     if (!openCodeSessionId) return undefined
     const session = this.byOpenCodeSessionId.get(openCodeSessionId)
